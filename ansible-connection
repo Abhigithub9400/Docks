@@ -1,0 +1,327 @@
+# Complete Ansible Setup Guide: Windows to EC2
+
+## Overview
+This guide walks you through setting up Ansible on EC2 instances, starting from a Windows laptop with SSH key management and server connections.
+
+## Prerequisites
+- Windows laptop with Command Prompt or PowerShell
+- Two EC2 Ubuntu 24.04 instances running
+- EC2 key pair (.pem file) downloaded to your Windows machine
+- Both instances have port 22 (SSH) open in security groups
+
+## Architecture
+```
+Windows Laptop → Ansible Control Node (EC2) → Target Server (EC2)
+```
+
+---
+
+## Step 1: Copy EC2 Key from Windows Laptop to Control Node
+
+### From Windows Command Prompt/PowerShell:
+
+```cmd
+# Navigate to your Downloads folder
+cd C:\Users\abhijith.so\Downloads
+
+# Copy the .pem file to your Ansible control node
+scp -i kodenew.pem kodenew.pem ubuntu@18.212.133.177:~/
+```
+
+**Alternative with full paths:**
+```cmd
+scp -i "C:\Users\abhijith.so\Downloads\kodenew.pem" "C:\Users\abhijith.so\Downloads\kodenew.pem" ubuntu@18.212.133.177:~/
+```
+
+### Troubleshooting Windows SCP:
+- If you get permission errors, ensure you're running Command Prompt as Administrator
+- Use quotes around paths with spaces
+- Ensure the .pem file has the correct permissions (read-only for owner)
+
+---
+
+## Step 2: Connect to Your Ansible Control Node
+
+```cmd
+# From Windows, connect to your control node
+ssh -i C:\Users\abhijith.so\Downloads\kodenew.pem ubuntu@18.212.133.177
+```
+
+---
+
+## Step 3: Set Up the EC2 Key on Control Node
+
+```bash
+# Move the key to .ssh directory and set permissions
+mkdir -p ~/.ssh
+mv ~/kodenew.pem ~/.ssh/
+chmod 400 ~/.ssh/kodenew.pem
+
+# Verify the key is in place
+ls -la ~/.ssh/kodenew.pem
+```
+
+---
+
+## Step 4: Install Ansible on Control Node
+
+```bash
+# Update system packages
+sudo apt update
+
+# Install Ansible
+sudo apt install ansible -y
+
+# Verify installation
+ansible --version
+```
+
+---
+
+## Step 5: Generate SSH Key Pair for Ansible
+
+```bash
+# Generate Ed25519 key pair (recommended)
+ssh-keygen -t ed25519 -C "ansible-key"
+
+# Press Enter for all prompts to use defaults
+# This creates:
+# - Private key: ~/.ssh/id_ed25519
+# - Public key: ~/.ssh/id_ed25519.pub
+```
+
+---
+
+## Step 6: Copy Ansible Public Key to Target Server
+
+### Method 1: Using ssh-copy-id (Recommended)
+
+```bash
+# Use the EC2 key to authenticate and copy the Ansible public key
+ssh-copy-id -f -o IdentityFile=~/.ssh/kodenew.pem ubuntu@18.207.176.158
+```
+
+**Expected Output:**
+```
+/usr/bin/ssh-copy-id: INFO: Source of key(s) to be installed: "/home/ubuntu/.ssh/id_ed25519.pub"
+Number of key(s) added: 1
+
+Now try logging into the machine, with:   "ssh 'ubuntu@18.207.176.158'"
+and check to make sure that only the key(s) you wanted were added.
+```
+
+### Method 2: Manual Copy (Alternative)
+
+```bash
+# 1. Get your public key content
+cat ~/.ssh/id_ed25519.pub
+
+# 2. Connect to target server using EC2 key
+ssh -i ~/.ssh/kodenew.pem ubuntu@18.207.176.158
+
+# 3. Add the public key to authorized_keys
+echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... ubuntu@control-node" >> ~/.ssh/authorized_keys
+
+# 4. Set correct permissions
+chmod 600 ~/.ssh/authorized_keys
+
+# 5. Exit the session
+exit
+```
+
+---
+
+## Step 7: Test SSH Connection
+
+```bash
+# Test connection without specifying the PEM file
+ssh ubuntu@18.207.176.158
+
+# If successful, you should connect using your Ed25519 key
+# Check which key was used:
+ssh -v ubuntu@18.207.176.158 2>&1 | grep "Offering"
+```
+
+---
+
+## Step 8: Create Ansible Inventory
+
+```bash
+# Create inventory file
+nano ~/inventory.ini
+```
+
+**Content of inventory.ini:**
+```ini
+[webservers]
+18.207.176.158 ansible_user=ubuntu
+
+[databases]
+# Add other servers here if needed
+
+[all:vars]
+ansible_ssh_private_key_file=~/.ssh/id_ed25519
+ansible_host_key_checking=False
+```
+
+---
+
+## Step 9: Test Ansible Connectivity
+
+```bash
+# Test ping to all servers
+ansible -i ~/inventory.ini -m ping all
+
+# Expected output:
+# 18.207.176.158 | SUCCESS => {
+#     "ansible_facts": {
+#         "discovered_interpreter_python": "/usr/bin/python3"
+#     },
+#     "changed": false,
+#     "ping": "pong"
+# }
+```
+
+### Additional Tests:
+```bash
+# Test command execution
+ansible -i ~/inventory.ini -m shell -a "whoami" all
+
+# Test with sudo privileges
+ansible -i ~/inventory.ini -m shell -a "whoami" all --become
+
+# Check system info
+ansible -i ~/inventory.ini -m setup all | grep ansible_distribution
+```
+
+---
+
+## Step 10: Example Ansible Commands
+
+### Package Management:
+```bash
+# Update package cache
+ansible -i ~/inventory.ini -m apt -a "update_cache=yes" all --become
+
+# Install Docker
+ansible -i ~/inventory.ini -m apt -a "name=docker.io state=present" all --become
+
+# Install multiple packages
+ansible -i ~/inventory.ini -m apt -a "name=nginx,git,curl state=present" all --become
+```
+
+### File Operations:
+```bash
+# Create a file
+ansible -i ~/inventory.ini -m file -a "path=/tmp/test.txt state=touch" all
+
+# Copy a file
+ansible -i ~/inventory.ini -m copy -a "src=/home/ubuntu/localfile.txt dest=/tmp/remotefile.txt" all
+```
+
+### Service Management:
+```bash
+# Start and enable nginx
+ansible -i ~/inventory.ini -m systemd -a "name=nginx state=started enabled=yes" all --become
+
+# Check service status
+ansible -i ~/inventory.ini -m shell -a "systemctl status nginx" all --become
+```
+
+---
+
+## Troubleshooting
+
+### Common Issues and Solutions:
+
+**1. Permission denied (publickey)**
+```bash
+# Check if your public key is properly added
+ssh -v ubuntu@18.207.176.158 2>&1 | grep -i "publickey\|authentication"
+
+# Verify authorized_keys on target server
+ssh -i ~/.ssh/kodenew.pem ubuntu@18.207.176.158 "cat ~/.ssh/authorized_keys"
+```
+
+**2. Host key verification failed**
+```bash
+# Remove old host key
+ssh-keygen -R 18.207.176.158
+
+# Or disable host key checking in inventory
+ansible_host_key_checking=False
+```
+
+**3. Python interpreter warnings**
+Add to your inventory:
+```ini
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
+```
+
+**4. Connection timeout**
+- Check security groups allow SSH (port 22)
+- Verify the public IP address is correct
+- Ensure the instance is running
+
+---
+
+## Security Best Practices
+
+1. **Key Management:**
+   - Keep your EC2 .pem files secure (chmod 400)
+   - Use separate SSH keys for different purposes
+   - Regularly rotate SSH keys
+
+2. **Ansible Security:**
+   - Use Ansible Vault for sensitive data
+   - Limit sudo access where possible
+   - Use specific user accounts rather than root
+
+3. **Network Security:**
+   - Restrict SSH access to specific IP ranges
+   - Use VPC and security groups properly
+   - Consider using bastion hosts for production
+
+---
+
+## File Structure Summary
+
+After completing this setup, your control node should have:
+
+```
+/home/ubuntu/
+├── .ssh/
+│   ├── id_ed25519           # Ansible private key
+│   ├── id_ed25519.pub       # Ansible public key
+│   ├── kodenew.pem          # EC2 key pair
+│   ├── known_hosts          # SSH known hosts
+│   └── authorized_keys      # Authorized keys for this server
+├── inventory.ini            # Ansible inventory file
+└── [your ansible playbooks and configs]
+```
+
+---
+
+## Next Steps
+
+1. Create your first Ansible playbook
+2. Set up Ansible roles for reusable configurations
+3. Implement Ansible Vault for secrets management
+4. Configure multiple environments (dev, staging, prod)
+
+## Quick Reference Commands
+
+```bash
+# SSH to target server
+ssh ubuntu@18.207.176.158
+
+# Test Ansible connectivity
+ansible -i ~/inventory.ini -m ping all
+
+# Run ad-hoc command
+ansible -i ~/inventory.ini -m shell -a "command" all --become
+
+# Run playbook
+ansible-playbook -i ~/inventory.ini playbook.yml
+```
