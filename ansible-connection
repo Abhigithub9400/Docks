@@ -1,4 +1,5 @@
 # Complete Ansible Setup Guide: Windows to EC2
+# change file location and  pem files names accordingly  
 
 ## Overview
 This guide walks you through setting up Ansible on EC2 instances, starting from a Windows laptop with SSH key management and server connections.
