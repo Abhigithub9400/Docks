@@ -1,0 +1,66 @@
+Step-by-Step: Azure Blob Storage Lifecycle Management (Targeted)
+1. Access the Storage Account
+
+    Log in to the Azure Portal.
+
+    Search for and select the Storage account where your data is stored.
+
+2. Navigate to Lifecycle Management
+
+    On the left-hand menu, scroll down to the Data management section.
+
+    Click on Lifecycle management.
+
+3. Create the Rule
+
+    Click + Add a rule at the top.
+
+    Step 1: Details
+
+        Rule name: Give it a descriptive name (e.g., Archive_MediNoteX_Old_Blobs).
+
+        Rule scope: Select Limit blobs with filters (this is the critical step for targeting specific containers).
+
+        Blob type: Ensure Base blobs is checked.
+
+        Blob subtype: Check Block blobs.
+
+        Click Next.
+
+4. Define the Rule Conditions
+
+    Step 2: Base blobs
+
+        Condition: Select Days after last modification (this is usually safest to ensure you aren't archiving active data).
+
+        Value: Enter 180.
+
+        Action: Select Move to archive.
+
+        Click Next.
+
+5. Apply the Filter (Targeting your Container)
+
+    Step 3: Filter set
+
+        Under Prefix match, type the name of your container followed by a forward slash.
+
+        Example: my-container-name/
+
+        If you want to target a specific folder inside that container: my-container-name/backups/.
+
+        Note: You can add multiple prefixes if you have several containers you want to include in this same rule.
+
+6. Review and Save
+
+    Click Add.
+
+    The rule is now active. Azure will run this policy automatically once every 24 hours.
+
+💡 Pro-Tips for your DevOps Workflow
+
+    The 180-Day Rule: Keep in mind that Azure charges for a minimum of 180 days of storage in the Archive tier. If you move it to Archive and then delete it 10 days later, you will still be billed for the remaining 170 days.
+
+    Verification: You won't see the blobs move instantly. It can take up to 24 hours for the first run to complete. You can check the "Access Tier" column in your container to see when it changes from Hot/Cool to Archive.
+
+    Automation: Since you've been working with PostgreSQL backups (like your pats_dev DB), this is a perfect way to keep your latest backups in "Hot" storage for quick recovery and move the older ones to "Archive" to save money.
